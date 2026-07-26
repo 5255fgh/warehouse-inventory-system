@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>仓库盘点管理系统</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<h1>仓库盘点管理系统</h1>
+<p class="sub">扫码盘点 · 初盘/复盘 · 自动保存 · 备份恢复 · 多维报表 · 本地处理业务数据</p>
+
+<div class="card no-print">
+  <div class="toolbar">
+    <label class="filebtn">📂 导入 Excel<input id="file" type="file" accept=".xlsx,.xls,.csv" hidden></label>
+    <button class="outline" id="demo">加载演示数据</button>
+    <button class="success" id="exportDiff" disabled>导出差异报告</button>
+    <button class="outline" id="exportAll" disabled>导出完整报告</button>
+    <button class="outline" id="printBtn" disabled>打印异常清单</button>
+    <button class="primary" id="batchConfirm" disabled>批量确认无差异</button>
+    <div class="more">
+      <button class="outline" id="moreBtn">更多操作 ▾</button>
+      <div class="more-menu hide" id="moreMenu">
+        <button class="outline" id="undo" disabled>撤销上一步</button>
+        <button class="outline" id="historyBtn" disabled>修改记录</button>
+        <button class="outline" id="backup" disabled>导出进度备份</button>
+        <label class="filebtn">恢复备份<input id="restore" type="file" accept=".json" hidden></label>
+        <button class="danger" id="clear" disabled>清空当前盘点</button>
+      </div>
+    </div>
+    <div class="save-indicator"><span id="saveDot" class="save-dot"></span><span id="saveText">未保存</span></div>
+  </div>
+  <div class="stats" id="stats" style="display:none">
+    <div class="stat">总商品<strong id="sTotal">0</strong></div>
+    <div class="stat">已盘<strong id="sDone">0</strong></div>
+    <div class="stat">未盘<strong id="sTodo">0</strong></div>
+    <div class="stat">完成率<strong id="sRate">0%</strong></div>
+    <div class="stat">盘盈<strong id="sPlus">0</strong></div>
+    <div class="stat">盘亏<strong id="sMinus">0</strong></div>
+    <div class="stat">无差异<strong id="sZero">0</strong></div>
+    <div class="stat">差异金额<strong id="sAmount">0.00</strong></div>
+  </div>
+  <div class="progress" id="progressWrap" style="display:none"><i id="progress"></i></div>
+  <div id="status" class="status"></div>
+</div>
+
+<div class="card scanarea no-print">
+  <div class="scanbar">
+    <select id="round" disabled><option value="first">初盘</option><option value="review">复盘</option></select>
+    <select id="scanMode" disabled><option value="inc">扫码累加</option><option value="locate">扫码定位</option></select>
+    <button id="scanDirection" class="success" disabled data-dir="1">＋累加</button>
+    <input id="scanStep" type="number" min="0.000001" step="any" value="1" title="每次扫码变化数量">
+    <input id="scanner" class="scanbox" autocomplete="off" inputmode="none" placeholder="点击后扫描条码，扫码枪需发送 Enter" disabled>
+    <button id="focusScan" class="primary" disabled>开始持续扫码</button>
+  </div>
+  <div id="scanmsg" class="scanmsg">导入库存后可使用扫码盘点。</div>
+</div>
+
+<div class="card no-print">
+  <div class="filters">
+    <input id="search" class="grow" placeholder="搜索编码、名称、库位、批次..." disabled>
+    <select id="filter" disabled>
+      <option value="all">全部商品</option><option value="todo">未盘点</option><option value="done">已盘点</option>
+      <option value="diff">有差异</option><option value="plus">盘盈</option><option value="minus">盘亏</option><option value="zero">无差异</option>
+    </select>
+    <select id="moreFilter" disabled>
+      <option value="">更多过滤</option><option value="reason">有差异原因</option><option value="noprice">无单价</option>
+    </select>
+    <select id="sort" disabled>
+      <option value="index">原始顺序</option><option value="code">编码</option><option value="name">名称</option>
+      <option value="sysDesc">系统数量降序</option><option value="diffAbs">差异绝对值降序</option><option value="amountAbs">差异金额降序</option>
+    </select>
+    <input id="operator" placeholder="盘点人员" disabled style="width:120px">
+    <input id="warehouse" placeholder="仓库名称" disabled style="width:130px">
+    <span id="matchTip" class="match-tip"></span>
+    <button id="clearSearch" class="outline" disabled>清除搜索</button>
+    <button id="pasteCodesBtn" class="outline" disabled>粘贴编码定位</button>
+  </div>
+  <div class="reasonbar" style="margin-top:9px" id="reasonBar"></div>
+</div>
+
+<div class="print-head">
+  <h2>仓库盘点异常清单</h2>
+  <div class="print-meta">
+    <div>仓库：<span id="pWarehouse"></span></div>
+    <div>盘点人：<span id="pOperator"></span></div>
+    <div>日期：<span id="pDate"></span></div>
+    <div>源文件：<span id="pFile"></span></div>
+  </div>
+</div>
+
+<div class="card" style="padding:0">
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th class="sticky1" style="width:125px">商品编码</th>
+        <th class="sticky2" style="width:190px">商品名称</th>
+        <th>库位</th><th>批次</th><th>单位</th><th>系统数量</th><th>单价</th>
+        <th>初盘数量</th><th>复盘数量</th><th>最终数量</th><th>差异数量</th><th>差异金额</th><th>差异原因</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div id="cards" class="mobilecards"></div>
+</div>
+
+<div class="print-foot">
+  <div>默认打印范围：有差异商品 + 未盘商品</div>
+  <div class="signs"><div>盘点人签字：__________</div><div>复核人签字：__________</div><div>负责人签字：__________</div></div>
+</div>
+
+<div id="importModal" class="modal hide">
+  <div class="modalbox">
+    <h2>导入设置与数据预览</h2>
+    <div class="grid">
+      <label>工作表<select id="sheetSel"></select></label>
+      <label>商品编码列<select id="mapCode"></select></label>
+      <label>商品名称列<select id="mapName"></select></label>
+      <label>系统数量列<select id="mapQty"></select></label>
+      <label>单价列<select id="mapPrice"></select></label>
+      <label>库位列<select id="mapLoc"></select></label>
+      <label>批次列<select id="mapBatch"></select></label>
+      <label>单位列<select id="mapUnit"></select></label>
+      <label>重复编码处理<select id="dupMode"><option value="block">阻止导入</option><option value="merge">合并数量</option><option value="keep">保留重复行</option></select></label>
+    </div>
+    <div class="preview" id="preview"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="outline" id="cancelImport">取消</button><button class="primary" id="confirmImport">确认导入</button>
+    </div>
+  </div>
+</div>
+
+<div id="historyModal" class="modal hide">
+  <div class="modalbox">
+    <h2>修改记录</h2><div id="historyList" class="log"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="outline" id="closeHistory">关闭</button></div>
+  </div>
+</div>
+
+<div id="pasteModal" class="modal hide">
+  <div class="modalbox">
+    <h2>粘贴商品编码批量定位</h2>
+    <textarea id="pasteCodes" rows="10" style="width:100%" placeholder="每行一个商品编码，也支持从 Excel 直接粘贴一列"></textarea>
+    <div id="pasteResult" class="status"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="outline" id="closePaste">取消</button><button class="primary" id="applyPaste">查看匹配商品</button>
+    </div>
+  </div>
+</div>
+
+<div id="dupModal" class="modal hide">
+  <div class="modalbox">
+    <h2>请选择商品记录</h2>
+    <div id="dupChoices"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="outline" id="closeDup">取消</button></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
